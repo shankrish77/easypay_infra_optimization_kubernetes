@@ -1,0 +1,220 @@
+
+---
+- name: Provision EC2 Instance(s)
+  hosts: localhost # While interacting with AWS this will always be via the local ansible controller VM - localhost
+  connection: local
+  gather_facts: no
+  tags: provision
+  #Required variables for provisioning an EC2 instance
+  vars:
+    AWS_ACCESS_KEY_ID: XXXXXXXXXXX  # Access key for shankris1 IAM user created through AWS console
+    AWS_SECRET_KEY_ID: XXXXXXXXXXX  # Secret key for shankris1 IAM user created in AWS
+    region: us-east-1 # Region where the instance should be launched
+    keypair: awsexplore_sshkey # SSH keypair created already through AWS console
+    instance_type: t3.micro # Type of instance to create
+    image: ami-09e67e426f25ce0d7 # Ubuntu 20.04 AWS image id
+    count: 3 # Number of instances to launch
+    security_group: sec_group1
+    vpc_subnet_id: subnet-04c72ceaeb01afbd2
+    volumes:
+      - device_name: /dev/sda1
+        volume_size: 10
+        volume_type: gp2 # you can specify different types here
+        delete_on_termination: true
+  tasks:
+    - name: Create a security group
+      ec2_group:
+        name: "{{ security_group }}"
+        description: a security group for ansible ec2 provisioning
+        aws_access_key: "{{ AWS_ACCESS_KEY_ID }}"
+        aws_secret_key: "{{ AWS_SECRET_KEY_ID }}"
+        aws_region: "{{ region }}"
+        rules:
+          - proto: tcp
+            from_port: 80
+            to_port: 80
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            from_port: 443
+            to_port: 443
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            from_port: 22
+            to_port: 22
+            cidr_ip: 0.0.0.0/0
+          - proto: udp
+            from_port: 7946
+            to_port: 7946
+            cidr_ip: 0.0.0.0/0
+          - proto: udp
+            from_port: 2377
+            to_port: 2377
+            cidr_ip: 0.0.0.0/0
+          - proto: udp
+            from_port: 4789
+            to_port: 4789
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            from_port: 7946
+            to_port: 7946
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            from_port: 10250
+            to_port: 10250
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            from_port: 6443
+            to_port: 6443
+            cidr_ip: 0.0.0.0/0
+        rules_egress:
+          - proto: all
+            from_port: 80 # this value is ignored since proto allows all
+            to_port: 80   # this value is ignored since proto allows all
+            cidr_ip: 0.0.0.0/0
+      register: shan_security_group
+
+    - name: Create an Elastic Load Balancer listening only over port 80. port 443 needs ssl certificate
+      ec2_elb_lb:
+        name: ec2-elb
+        state: present
+        aws_access_key: "{{ AWS_ACCESS_KEY_ID }}"
+        aws_secret_key: "{{ AWS_SECRET_KEY_ID }}"
+        region: "{{ region }}"
+        zones:
+          - us-east-1b # Find the valid availability zones in EC2 Dashboard at the bottom of the page
+          - us-east-1c
+        listeners:
+          - protocol: http
+            load_balancer_port: 80
+            instance_port: 80
+      register: shan_elb
+
+    - name: Launch the new EC2 instance(s)
+      ec2:
+        aws_access_key: "{{ AWS_ACCESS_KEY_ID }}"
+        aws_secret_key: "{{ AWS_SECRET_KEY_ID }}"
+        aws_region: "{{ region }}"
+        keypair: "{{ keypair }}"
+        instance_type: "{{ instance_type }}"
+        image: "{{ image }}"  #Ubuntu 20.04
+        group_id:
+          - "{{ shan_security_group.group_id }}"
+          - "{{ shan_elb.elb.security_group_ids | first }}"
+        wait: yes
+        vpc_subnet_id: "{{ vpc_subnet_id }}"
+        # group: "{{ security_group }}"
+        #assign_public_ip: yes
+        instance_tags:
+          Name: ec2_v3
+        exact_count: "{{ count }}"
+        count_tag: # The count of new ec2 instances to be launched is determined based on the tag below.
+          Name: ec2_v3
+        volumes: "{{ volumes }}"
+      register: ec2_instances
+
+    - name: Associate new elastic IPs with each of the instances
+      ec2_eip:
+        aws_access_key: "{{ AWS_ACCESS_KEY_ID }}"
+        aws_secret_key: "{{ AWS_SECRET_KEY_ID }}"
+        region: "{{ region }}"
+        device_id: "{{ item }}"
+        in_vpc: yes
+        reuse_existing_ip_allowed: yes
+        release_on_disassociation: yes
+        state: present
+      with_items: "{{ ec2_instances.instance_ids }}"
+      register: shan_eip
+
+    - name: Wait for Elastic IPs to replace the default Public IPs associated to the instances during launch in the above step
+      wait_for:
+        timeout: 30
+      delegate_to: localhost
+
+      # Only temporary public IP(s) created during EC2 instance launch will be available in ec2_instances. So refresh it again with latest EIP info.
+      # Since temp publicIPs are replaced with EIP above if ec2_instances is not refreshed, obsolete public IPs will be used in later tasks & will fail.
+    - name: Get updated EC2 instance details after associating elastic IP(s) in the above task.
+      ec2:
+        aws_access_key: "{{ AWS_ACCESS_KEY_ID }}"
+        aws_secret_key: "{{ AWS_SECRET_KEY_ID }}"
+        aws_region: "{{ region }}"
+        keypair: "{{ keypair }}"
+        instance_type: "{{ instance_type }}"
+        image: "{{ image }}"  #Ubuntu 20.04
+        group_id:
+          - "{{ shan_security_group.group_id }}"
+          - "{{ shan_elb.elb.security_group_ids | first }}"
+        wait: yes
+        vpc_subnet_id: "{{ vpc_subnet_id }}"
+        instance_tags:
+          Name: ec2_v3
+        exact_count: "{{ count }}"
+        count_tag: # The count of new ec2 instances to be launched is determined based on the tag below.
+          Name: ec2_v3
+        volumes: "{{ volumes }}"
+      register: ec2_instances
+
+    - name: Output the details of Elastic IP # Throws an error. Need to debug
+      debug:
+        msg: "{{ shan_eip }}"
+        #      with_items: "{{ shan_eip.public_ips }}"
+
+    - name: Wait for SSH to come up
+      wait_for:
+        host: "{{ item.public_ip }}" # Using the public IP fails because this step executes while the public IP is still being replaced with elastic IP
+        port: 22
+        state: started
+        timeout: 30
+      with_items: "{{ ec2_instances.tagged_instances }}"
+
+    - name: Store EC2 instance IPs in ec2_instance_ips for dynamic inventory use later
+      add_host:
+        hostname: "{{ item.public_ip }}"
+        groupname: ec2_instance_ips
+      with_items: "{{ ec2_instances.tagged_instances }}"
+
+    - name: Add EC2 instances to known_hosts file to avoid a prompt while connecting to these instances using SSH.
+      known_hosts:
+        name: "{{ item.public_ip }}"
+        key: "{{ lookup('pipe','ssh-keyscan -t rsa '  + item.public_ip) }}"
+      with_items: "{{ ec2_instances.tagged_instances }}"
+
+- hosts: ec2_instance_ips
+  remote_user: ubuntu
+  become: true
+  vars:
+    ansible_ssh_private_key_file: "/etc/ansible/MyAnsible_Playbooks/aws/awsexplore_sshkey.pem"
+  tasks:
+    - name: Update apt-get repo and cache
+      apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+
+    - name: Install nginx to validate ELB health check.
+      apt:
+        name: nginx
+        state: present
+
+    - name: Create index page
+      copy:
+       #dest: /usr/share/nginx/html/index.html
+        dest: /var/www/html/index.html
+        content: "Hello - This is the index page on {{ ansible_hostname }} \n"
+
+    - name: Restart nginx
+      service:
+        name: nginx
+        state: restarted
+
+- hosts: localhost
+  vars:
+    AWS_ACCESS_KEY_ID: XXXXXXXXXXX  # Access key for shankris1 IAM user created through AWS console
+    AWS_SECRET_KEY_ID: XXXXXXXXXXX  # Secret key for shankris1 IAM user created in AWS
+    region: us-east-1 # Region where the instance should be launched
+  tasks:
+    - name: Add each EC2 instance to the ELB
+      ec2_elb:
+        state: present
+        ec2_elbs: ec2-elb
+        aws_access_key: "{{ AWS_ACCESS_KEY_ID }}"
+        aws_secret_key: "{{ AWS_SECRET_KEY_ID }}"
+        region: "{{ region }}"
+        instance_id: "{{ item.id }}"
+      with_items: "{{ ec2_instances.tagged_instances }}"
