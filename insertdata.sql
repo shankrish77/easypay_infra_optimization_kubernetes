@@ -1,0 +1,1 @@
+insert into wallet (dollar_amount) values(100);
