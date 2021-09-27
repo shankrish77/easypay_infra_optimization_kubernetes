@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pvol1
+spec:
+  capacity:
+    storage: 10Gi
+  hostPath:
+    path: /tmp/data1
+    type: DirectoryOrCreate
+  accessModes:
+  - ReadWriteOnce
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pvol2
+spec:
+  capacity:
+    storage: 10Gi
+  hostPath:
+    path: /tmp/data2
+    type: DirectoryOrCreate
+  accessModes:
+  - ReadWriteOnce
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pvol3
+spec:
+  capacity:
+    storage: 10Gi
+  hostPath:
+    path: /tmp/data3
+    type: DirectoryOrCreate
+  accessModes:
+  - ReadWriteOnce

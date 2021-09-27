@@ -1,0 +1,19 @@
+#NETWORKING POLICY - Allow ingress traffic only from pods with label "role: php-frontend" to pods with label "app: mysql" on port 3306
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mysql-db-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql
+  policyTypes:
+    - Ingress
+  ingress: # allow incoming traffic to mysql-db only from php-frontend on port 3306
+    - from:
+      - podSelector:
+          matchLabels:
+            role: php-frontend
+      ports:
+        - protocol: TCP
+          port: 3306
