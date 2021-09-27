@@ -1,0 +1,42 @@
+# kubectl api-resources lists namespaced and non-namespaced resources.
+# Role and Rolebinding are namespace scoped. If No namespace specified - uses default namespace
+# Give developer role access to pods - get, list, update, delete, create and configmap - create
+# Bind the developer role to user shanthi
+# kubectl apply -f role-rolebinding-resources.yaml
+# kubectl auth can-i delete pods --as shanthi
+# After role binding, use the curl command below to authenticate the cluster using the certs.
+# curl https://localhost:6443/api/v1/pods --key myuser.key --cert shanthi.crt -k --cacert /etc/kubernetes/pki/ca.crt
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer
+rules:
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["pods","services","pods/exec"]
+  verbs: ["get", "list", "update", "delete", "create"]
+- apiGroups: [""]
+  resources: ["ConfigMap"]
+  verbs: ["create"]
+- apiGroups: ["apps"] # "apps" indicates the apps API group
+  resources: ["deployments","statefulsets"]
+  verbs: ["get", "list", "update", "delete", "create"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "update", "delete", "create"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "update", "delete", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: shanthi-developer-binding
+subjects:
+- kind: User
+  name: shanthi # "name" is case sensitive - assign the CN value in myuser_shanthi.csr to name
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: developer
+  apiGroup: rbac.authorization.k8s.io

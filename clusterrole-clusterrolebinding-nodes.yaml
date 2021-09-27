@@ -1,0 +1,27 @@
+# kubectl api-resources list namespaced and non-namespaced resources.
+# ClusterRole and ClusterRolebinding are NOT namespace scoped. Works across all namespaces.
+#kubectl apply -f clusterrole-clusterrolebinding-nodes.yaml
+# kubectl auth can-i delete nodes --as shanthi
+# After cluster role binding, use the curl command below to authenticate the cluster using the certs.
+# curl https://localhost:6443/api/v1/pods --key myuser.key --cert shanthi.crt -k --cacert /etc/kubernetes/pki/ca.crt
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-administrator
+rules:
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["pods","nodes"] # Give access to pods in all the namespaces and nodes at the cluster level
+  verbs: ["get", "list", "delete", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: shanthi-cluster-admin-rolebinding
+subjects:
+- kind: User
+  name: shanthi
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: cluster-administrator
+  apiGroup: rbac.authorization.k8s.io
