@@ -1,0 +1,44 @@
+#kubectl apply -f php-frontend-deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-frontend-deployment
+  labels:
+    role: php-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: php-frontend #Match the frontend pods with label "role: php-frontend" as the criteria for replicas
+  template:
+    metadata:
+      name: php-frontend-pod
+      labels:
+        role: php-frontend
+    spec:
+      containers:
+        - name: php-wallet
+          image: 06191977/shan-php-k8s:latest
+          ports:
+          - containerPort: 80
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi # 100Mi
+            requests:
+              cpu: 200m
+              memory: 0.5Gi # 50Mi
+---
+#LoadBalancer Service groups the frontend pods that match the selector.
+#Another layer can access this service IP or service name to communicate instead of dynamic pod IPs which will change as pods are recreated
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-frontend-service
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+  selector:
+    role: php-frontend
